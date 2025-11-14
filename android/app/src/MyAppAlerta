@@ -24,6 +24,7 @@ void main() {
   });
 }
 
+
 class AlertApp extends StatelessWidget {
   const AlertApp({super.key});
 
