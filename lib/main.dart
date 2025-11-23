@@ -1,9 +1,11 @@
-import 'dart:io'; // Necesario para el tipo 'File'
+import 'dart:io';
+import 'package:http/http.dart' as http;
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:google_maps_flutter/google_maps_flutter.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart'; // ← AGREGAR ESTA LÍNEA
 
 void main() {
   runApp(const AlertApp());
@@ -186,84 +188,268 @@ class _AlertScreenState extends State<AlertScreen>
   }
 
   Future<void> _pickImage() async {
-    // Usamos 'image_picker' para reemplazar <input type="file">
-    // Puedes cambiar ImageSource.gallery por .camera
-    final XFile? pickedFile = await _picker.pickImage(
-      source: ImageSource.gallery,
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(16)),
+      ),
+      builder: (BuildContext context) {
+        return SafeArea(
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                ListTile(
+                  leading: const Icon(
+                    Icons.photo_camera,
+                    color: Colors.blue,
+                    size: 32,
+                  ),
+                  title: const Text(
+                    'Tomar foto',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _getImage(ImageSource.camera);
+                  },
+                ),
+                const Divider(),
+                ListTile(
+                  leading: const Icon(
+                    Icons.photo_library,
+                    color: Colors.green,
+                    size: 32,
+                  ),
+                  title: const Text(
+                    'Elegir de galería',
+                    style: TextStyle(fontSize: 16),
+                  ),
+                  onTap: () {
+                    Navigator.of(context).pop();
+                    _getImage(ImageSource.gallery);
+                  },
+                ),
+                if (_imageFile != null) ...[
+                  const Divider(),
+                  ListTile(
+                    leading: const Icon(
+                      Icons.delete,
+                      color: Colors.red,
+                      size: 32,
+                    ),
+                    title: const Text(
+                      'Eliminar foto',
+                      style: TextStyle(fontSize: 16),
+                    ),
+                    onTap: () {
+                      Navigator.of(context).pop();
+                      setState(() {
+                        _imageFile = null;
+                      });
+                    },
+                  ),
+                ],
+              ],
+            ),
+          ),
+        );
+      },
     );
+  }
 
-    if (pickedFile != null) {
-      setState(() {
-        _imageFile = File(pickedFile.path);
-      });
+  Future<void> _getImage(ImageSource source) async {
+    try {
+      final XFile? pickedFile = await _picker.pickImage(
+        source: source,
+        imageQuality: 85,
+        maxWidth: 1920,
+        maxHeight: 1920,
+      );
+
+      if (pickedFile != null) {
+        // Verificar extensión del archivo
+        String extension = pickedFile.path.split('.').last.toLowerCase();
+
+        if (!['jpg', 'jpeg', 'png', 'gif'].contains(extension)) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('⚠️ Solo se permiten imágenes JPG, PNG o GIF'),
+                backgroundColor: Colors.orange,
+              ),
+            );
+          }
+          return;
+        }
+
+        setState(() {
+          _imageFile = File(pickedFile.path);
+        });
+
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('✅ Foto cargada correctamente'),
+              backgroundColor: Colors.green,
+              duration: Duration(seconds: 2),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      debugPrint('❌ Error al seleccionar imagen: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('❌ Error: $e'), backgroundColor: Colors.red),
+        );
+      }
     }
   }
 
   Future<void> _submitReport() async {
-    // --- SIMULACIÓN DE ENVÍO ---
-    // En una app real, aquí es donde enviarías los datos a un backend/API
-    // (usando http, dio, etc.)
-    debugPrint("--- SIMULACIÓN DE REPORTE ENVIADO ---");
-    debugPrint("Tipo: $_currentAlertType");
-    debugPrint("Descripción: ${_descriptionController.text}");
-    debugPrint("Foto: ${_imageFile?.path ?? 'No adjuntada'}");
-    // NUEVO: Imprimir ubicación
-    if (_currentPosition != null) {
-      debugPrint(
-        "Ubicación - Lat: ${_currentPosition!.latitude}, Lng: ${_currentPosition!.longitude}",
-      );
-    } else {
-      debugPrint("Ubicación: No proporcionada");
-    }
-    // Mostrar el modal de éxito (HTML #modal-success)
-    // 'showDialog' es el equivalente de Flutter a un modal
-    // 'context' debe estar disponible, por eso no usamos 'await' si el widget puede desaparecer
-    if (!mounted) return; // Buena práctica
+    // URL del servidor - CAMBIAR según dónde pruebes
+    const String apiUrl =
+        'https://chiliadic-thoroughpaced-nicki.ngrok-free.dev/cementerio_alertas/api/recibir_alerta.php';
 
-    showDialog(
-      context: context,
-      barrierDismissible: false, // No se cierra al tocar fuera
-      builder: (BuildContext dialogContext) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(16),
-          ),
-          title: const Text("Reporte Enviado"),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              // Icono de éxito
-              Container(
-                width: 64,
-                height: 64,
-                decoration: BoxDecoration(
-                  color: Colors.green[100],
-                  shape: BoxShape.circle,
+    // Si pruebas en celular físico, usa la IP de tu PC:
+    // const String apiUrl = 'http://192.168.1.XXX/cementerio_alertas/api/recibir_alerta.php';
+
+    if (_currentPosition == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('⚠️ Por favor obtén tu ubicación GPS primero'),
+          backgroundColor: Colors.orange,
+          duration: Duration(seconds: 3),
+        ),
+      );
+      return;
+    }
+
+    try {
+      // Mostrar indicador de carga
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (BuildContext context) {
+          return const Center(child: CircularProgressIndicator());
+        },
+      );
+
+      // Preparar datos para enviar
+      var request = http.MultipartRequest('POST', Uri.parse(apiUrl));
+
+      // Agregar campos de texto
+      request.fields['tipo'] = _currentAlertType;
+      request.fields['descripcion'] = _descriptionController.text.isNotEmpty
+          ? _descriptionController.text
+          : 'Alerta enviada desde app móvil';
+      request.fields['latitud'] = _currentPosition!.latitude.toString();
+      request.fields['longitud'] = _currentPosition!.longitude.toString();
+
+      // Agregar foto si existe
+      if (_imageFile != null) {
+        var pic = await http.MultipartFile.fromPath('foto', _imageFile!.path);
+        request.files.add(pic);
+      }
+
+      // Enviar petición
+      debugPrint('📡 Enviando alerta al servidor...');
+      var response = await request.send();
+      var responseData = await response.stream.bytesToString();
+
+      debugPrint('📥 Respuesta del servidor: $responseData');
+
+      // Cerrar indicador de carga
+      if (mounted) Navigator.of(context).pop();
+
+      if (response.statusCode == 200) {
+        var jsonResponse = json.decode(responseData);
+
+        if (jsonResponse['success'] == true) {
+          // ✅ ÉXITO - Mostrar modal
+          if (!mounted) return;
+
+          showDialog(
+            context: context,
+            barrierDismissible: false,
+            builder: (BuildContext dialogContext) {
+              return AlertDialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(16),
                 ),
-                child: Icon(Icons.check, color: Colors.green[600], size: 40),
-              ),
-              const SizedBox(height: 16),
-              Text(
-                'Su alerta de "$_currentAlertType" ha sido enviada. El personal de seguridad ha sido notificado.',
-                textAlign: TextAlign.center,
-              ),
-            ],
-          ),
-          actionsAlignment: MainAxisAlignment.center,
-          actions: [
-            // Botón Aceptar (HTML #btn-modal-close)
-            TextButton(
-              onPressed: () {
-                Navigator.of(dialogContext).pop(); // Cierra el diálogo
-                _resetForm();
-                _navigateTo(AppScreen.initial); // Vuelve al inicio
-              },
-              child: const Text("Aceptar", style: TextStyle(fontSize: 16)),
+                title: const Text("✅ Reporte Enviado"),
+                content: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Container(
+                      width: 64,
+                      height: 64,
+                      decoration: BoxDecoration(
+                        color: Colors.green[100],
+                        shape: BoxShape.circle,
+                      ),
+                      child: Icon(
+                        Icons.check,
+                        color: Colors.green[600],
+                        size: 40,
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      'Su alerta de "$_currentAlertType" ha sido enviada correctamente.\n\nID: ${jsonResponse['data']['id']}\n\nEl personal de seguridad ha sido notificado.',
+                      textAlign: TextAlign.center,
+                    ),
+                  ],
+                ),
+                actionsAlignment: MainAxisAlignment.center,
+                actions: [
+                  TextButton(
+                    onPressed: () {
+                      Navigator.of(dialogContext).pop();
+                      _resetForm();
+                      _navigateTo(AppScreen.initial);
+                    },
+                    child: const Text(
+                      "Aceptar",
+                      style: TextStyle(fontSize: 16),
+                    ),
+                  ),
+                ],
+              );
+            },
+          );
+        } else {
+          throw Exception(jsonResponse['message'] ?? 'Error desconocido');
+        }
+      } else {
+        throw Exception('Error HTTP ${response.statusCode}');
+      }
+    } catch (e) {
+      debugPrint('❌ Error: $e');
+
+      // Cerrar indicador de carga si está abierto
+      if (mounted && Navigator.of(context).canPop()) {
+        Navigator.of(context).pop();
+      }
+
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.error, color: Colors.white),
+                const SizedBox(width: 10),
+                Expanded(child: Text('❌ Error al enviar alerta: $e')),
+              ],
             ),
-          ],
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 5),
+          ),
         );
-      },
-    );
+      }
+    }
   }
 
   // --- MÉTODOS DE CONSTRUCCIÓN (BUILD) ---

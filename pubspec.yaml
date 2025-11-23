@@ -16,6 +16,7 @@ dependencies:
   image_picker: ^1.1.2
   geolocator: ^13.0.2 # Para obtener ubicación GPS
   google_maps_flutter: ^2.10.0 # Nuevo paquete para Google Maps
+  http: ^1.1.0 # Para realizar solicitudes HTTP
 
 dev_dependencies:
   flutter_test:
