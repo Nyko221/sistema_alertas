@@ -2,13 +2,14 @@ import 'dart:io'; // Necesario para el tipo 'File'
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:geolocator/geolocator.dart';
+import 'package:google_maps_flutter/google_maps_flutter.dart';
 
 void main() {
   runApp(const AlertApp());
 }
 
 enum AppScreen { initial, typeSelect, reportForm }
-
 
 class AlertApp extends StatelessWidget {
   const AlertApp({super.key});
@@ -19,9 +20,7 @@ class AlertApp extends StatelessWidget {
       title: 'Sistema de Alertas',
       // Aplicamos la fuente 'Inter' a toda la app, como en el CSS
       theme: ThemeData(
-        textTheme: GoogleFonts.interTextTheme(
-          Theme.of(context).textTheme,
-        ),
+        textTheme: GoogleFonts.interTextTheme(Theme.of(context).textTheme),
         // Definimos los colores principales para reusar
         colorScheme: ColorScheme.fromSeed(
           seedColor: const Color(0xFF334155), // Tono de 'slate'
@@ -48,7 +47,6 @@ class AlertScreen extends StatefulWidget {
 class _AlertScreenState extends State<AlertScreen>
     with TickerProviderStateMixin {
   // Enum para manejar las pantallas de forma legible
-  
 
   AppScreen _currentScreen = AppScreen.initial;
   String _currentAlertType = '';
@@ -62,6 +60,11 @@ class _AlertScreenState extends State<AlertScreen>
   // Controlador para la animación de pulso
   late AnimationController _animationController;
   late Animation<double> _animation;
+
+  // Variables para geolocalización
+  Position? _currentPosition; // Guarda la ubicación actual
+  bool _isLoadingLocation = false; // Indica si está obteniendo ubicación
+  String _locationMessage = ''; // Mensaje para mostrar al usuario
 
   @override
   void initState() {
@@ -77,16 +80,15 @@ class _AlertScreenState extends State<AlertScreen>
     // Configuración de la animación de pulso (CSS .pulse-danger)
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1000), // Mitad del CSS (2s) porque se revierte
+      duration: const Duration(
+        milliseconds: 1000,
+      ), // Mitad del CSS (2s) porque se revierte
     );
 
     _animation = Tween(begin: 1.0, end: 1.05).animate(
-      CurvedAnimation(
-        parent: _animationController,
-        curve: Curves.easeInOut,
-      ),
+      CurvedAnimation(parent: _animationController, curve: Curves.easeInOut),
     );
-    
+
     // Repetir la animación
     _animationController.repeat(reverse: true);
   }
@@ -123,11 +125,72 @@ class _AlertScreenState extends State<AlertScreen>
     });
   }
 
+  // Función para obtener la ubicación actual del usuario
+  Future<void> _getCurrentLocation() async {
+    setState(() {
+      _isLoadingLocation = true;
+      _locationMessage = 'Obteniendo ubicación...';
+    });
+
+    bool serviceEnabled;
+    LocationPermission permission;
+
+    // 1. Verificar si el GPS está activado
+    serviceEnabled = await Geolocator.isLocationServiceEnabled();
+    if (!serviceEnabled) {
+      setState(() {
+        _isLoadingLocation = false;
+        _locationMessage = 'Por favor, activa el GPS';
+      });
+      return;
+    }
+
+    // 2. Verificar permisos de ubicación
+    permission = await Geolocator.checkPermission();
+    if (permission == LocationPermission.denied) {
+      permission = await Geolocator.requestPermission();
+      if (permission == LocationPermission.denied) {
+        setState(() {
+          _isLoadingLocation = false;
+          _locationMessage = 'Permiso denegado';
+        });
+        return;
+      }
+    }
+
+    if (permission == LocationPermission.deniedForever) {
+      setState(() {
+        _isLoadingLocation = false;
+        _locationMessage =
+            'Permiso denegado permanentemente. Ve a configuración.';
+      });
+      return;
+    }
+
+    // 3. Obtener ubicación actual
+    try {
+      Position position = await Geolocator.getCurrentPosition(
+        desiredAccuracy: LocationAccuracy.high, // Precisión alta
+      );
+      setState(() {
+        _currentPosition = position;
+        _isLoadingLocation = false;
+        _locationMessage = '¡Ubicación obtenida!';
+      });
+    } catch (e) {
+      setState(() {
+        _isLoadingLocation = false;
+        _locationMessage = 'Error: $e';
+      });
+    }
+  }
+
   Future<void> _pickImage() async {
     // Usamos 'image_picker' para reemplazar <input type="file">
     // Puedes cambiar ImageSource.gallery por .camera
-    final XFile? pickedFile =
-        await _picker.pickImage(source: ImageSource.gallery);
+    final XFile? pickedFile = await _picker.pickImage(
+      source: ImageSource.gallery,
+    );
 
     if (pickedFile != null) {
       setState(() {
@@ -143,9 +206,15 @@ class _AlertScreenState extends State<AlertScreen>
     debugPrint("--- SIMULACIÓN DE REPORTE ENVIADO ---");
     debugPrint("Tipo: $_currentAlertType");
     debugPrint("Descripción: ${_descriptionController.text}");
-    debugPrint(
-        "Foto: ${_imageFile?.path ?? 'No adjuntada'}");
-
+    debugPrint("Foto: ${_imageFile?.path ?? 'No adjuntada'}");
+    // NUEVO: Imprimir ubicación
+    if (_currentPosition != null) {
+      debugPrint(
+        "Ubicación - Lat: ${_currentPosition!.latitude}, Lng: ${_currentPosition!.longitude}",
+      );
+    } else {
+      debugPrint("Ubicación: No proporcionada");
+    }
     // Mostrar el modal de éxito (HTML #modal-success)
     // 'showDialog' es el equivalente de Flutter a un modal
     // 'context' debe estar disponible, por eso no usamos 'await' si el widget puede desaparecer
@@ -156,8 +225,9 @@ class _AlertScreenState extends State<AlertScreen>
       barrierDismissible: false, // No se cierra al tocar fuera
       builder: (BuildContext dialogContext) {
         return AlertDialog(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
           title: const Text("Reporte Enviado"),
           content: Column(
             mainAxisSize: MainAxisSize.min,
@@ -170,8 +240,7 @@ class _AlertScreenState extends State<AlertScreen>
                   color: Colors.green[100],
                   shape: BoxShape.circle,
                 ),
-                child:
-                    Icon(Icons.check, color: Colors.green[600], size: 40),
+                child: Icon(Icons.check, color: Colors.green[600], size: 40),
               ),
               const SizedBox(height: 16),
               Text(
@@ -204,7 +273,8 @@ class _AlertScreenState extends State<AlertScreen>
     return Scaffold(
       // 'body' con 'bg-gray-100 flex items-center justify-center'
       body: Center(
-        child: SingleChildScrollView( // Para evitar overflow en pantallas pequeñas
+        child: SingleChildScrollView(
+          // Para evitar overflow en pantallas pequeñas
           child: Padding(
             padding: const EdgeInsets.all(16.0),
             // El 'div' principal (la tarjeta blanca)
@@ -284,12 +354,12 @@ class _AlertScreenState extends State<AlertScreen>
           child: ElevatedButton(
             onPressed: () => _navigateTo(AppScreen.typeSelect),
             style: ElevatedButton.styleFrom(
-              backgroundColor:
-                  Theme.of(context).colorScheme.error, // bg-red-600
+              backgroundColor: Theme.of(
+                context,
+              ).colorScheme.error, // bg-red-600
               foregroundColor: Colors.white, // text-white
               minimumSize: const Size(double.infinity, 60), // w-full py-4
-              padding:
-                  const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
+              padding: const EdgeInsets.symmetric(vertical: 16, horizontal: 24),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(8.0), // rounded-lg
               ),
@@ -372,8 +442,7 @@ class _AlertScreenState extends State<AlertScreen>
     return ElevatedButton(
       onPressed: onPressed,
       style: ElevatedButton.styleFrom(
-        backgroundColor:
-            Theme.of(context).colorScheme.primary, // bg-slate-700
+        backgroundColor: Theme.of(context).colorScheme.primary, // bg-slate-700
         foregroundColor: Colors.white, // text-white
         minimumSize: const Size(double.infinity, 60),
         padding: const EdgeInsets.all(16), // p-4
@@ -390,8 +459,7 @@ class _AlertScreenState extends State<AlertScreen>
           Expanded(
             child: Text(
               label,
-              style:
-                  const TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w500),
             ),
           ),
           const Icon(Icons.chevron_right, size: 24), // 'span' con '>'
@@ -414,7 +482,258 @@ class _AlertScreenState extends State<AlertScreen>
           textAlign: TextAlign.center,
         ),
         const SizedBox(height: 24),
+        // --- SECCIÓN DE GEOLOCALIZACIÓN ---
+        // --- UBICACIÓN GPS (funciona sin internet) ---
+        Container(
+          padding: const EdgeInsets.all(16),
+          decoration: BoxDecoration(
+            color: Colors.orange[50],
+            borderRadius: BorderRadius.circular(8.0),
+            border: Border.all(color: Colors.orange[300]!, width: 2),
+          ),
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  Icon(
+                    Icons.location_on,
+                    color: _currentPosition != null
+                        ? Colors.green
+                        : Colors.orange[700],
+                    size: 32,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          'Ubicación de la emergencia',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                          ),
+                        ),
+                        Text(
+                          _locationMessage.isEmpty
+                              ? 'Obtén tu ubicación GPS'
+                              : _locationMessage,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Colors.grey[700],
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
 
+              // COORDENADAS GPS (funcionan SIN internet)
+              if (_currentPosition != null) ...[
+                const SizedBox(height: 12),
+
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.green[50],
+                    borderRadius: BorderRadius.circular(6),
+                    border: Border.all(color: Colors.green, width: 2),
+                  ),
+                  child: Column(
+                    children: [
+                      const Icon(
+                        Icons.check_circle,
+                        color: Colors.green,
+                        size: 32,
+                      ),
+                      const SizedBox(height: 8),
+                      const Text(
+                        '✓ Ubicación GPS obtenida',
+                        style: TextStyle(
+                          fontSize: 16,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.green,
+                        ),
+                      ),
+                      const Divider(height: 20),
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(
+                            Icons.share_location,
+                            size: 16,
+                            color: Colors.grey,
+                          ),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  'Lat: ${_currentPosition!.latitude.toStringAsFixed(6)}',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'monospace',
+                                  ),
+                                ),
+                                Text(
+                                  'Lng: ${_currentPosition!.longitude.toStringAsFixed(6)}',
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    fontWeight: FontWeight.bold,
+                                    fontFamily: 'monospace',
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 8),
+                      Container(
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.blue[50],
+                          borderRadius: BorderRadius.circular(4),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(
+                              Icons.info_outline,
+                              size: 14,
+                              color: Colors.blue,
+                            ),
+                            SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                'El guardia verá tu ubicación en el mapa',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Colors.blue,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 8),
+
+                // MAPA (solo en Android/iOS, no en Windows)
+                if (Theme.of(context).platform == TargetPlatform.android ||
+                    Theme.of(context).platform == TargetPlatform.iOS)
+                  Container(
+                    height: 150,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: Colors.grey[300]!),
+                      color: Colors.grey[100],
+                    ),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Stack(
+                        children: [
+                          GoogleMap(
+                            initialCameraPosition: CameraPosition(
+                              target: LatLng(
+                                _currentPosition!.latitude,
+                                _currentPosition!.longitude,
+                              ),
+                              zoom: 16,
+                            ),
+                            markers: {
+                              Marker(
+                                markerId: const MarkerId('emergency'),
+                                position: LatLng(
+                                  _currentPosition!.latitude,
+                                  _currentPosition!.longitude,
+                                ),
+                                infoWindow: InfoWindow(
+                                  title: '¡Emergencia!',
+                                  snippet: _currentAlertType,
+                                ),
+                              ),
+                            },
+                            myLocationEnabled: true,
+                            myLocationButtonEnabled: false,
+                            zoomControlsEnabled: false,
+                          ),
+                          Positioned(
+                            bottom: 4,
+                            right: 4,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 6,
+                                vertical: 2,
+                              ),
+                              decoration: BoxDecoration(
+                                color: Colors.black54,
+                                borderRadius: BorderRadius.circular(4),
+                              ),
+                              child: const Text(
+                                'Vista previa',
+                                style: TextStyle(
+                                  color: Colors.white,
+                                  fontSize: 9,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+              ],
+
+              const SizedBox(height: 12),
+
+              // Botón para obtener ubicación GPS
+              ElevatedButton.icon(
+                onPressed: _isLoadingLocation ? null : _getCurrentLocation,
+                icon: _isLoadingLocation
+                    ? const SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: Colors.white,
+                        ),
+                      )
+                    : Icon(
+                        _currentPosition == null
+                            ? Icons.my_location
+                            : Icons.refresh,
+                        size: 18,
+                      ),
+                label: Text(
+                  _currentPosition == null
+                      ? 'Obtener mi ubicación GPS'
+                      : 'Actualizar ubicación',
+                ),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.orange[700],
+                  foregroundColor: Colors.white,
+                  minimumSize: const Size(double.infinity, 44),
+                ),
+              ),
+
+              if (_currentPosition == null)
+                const Padding(
+                  padding: EdgeInsets.only(top: 8),
+                  child: Text(
+                    '(No necesita internet)',
+                    style: TextStyle(fontSize: 11, color: Colors.grey),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 16),
         // --- Input de Foto (HTML #file-upload) ---
         // 'label' para 'file-upload'
         GestureDetector(
@@ -431,22 +750,27 @@ class _AlertScreenState extends State<AlertScreen>
             ),
             child: Column(
               children: [
-                Icon(Icons.add_a_photo_outlined,
-                    color: Colors.blue[700], size: 40), // w-10 h-10
+                Icon(
+                  Icons.add_a_photo_outlined,
+                  color: Colors.blue[700],
+                  size: 40,
+                ), // w-10 h-10
                 const SizedBox(height: 8),
                 Text(
                   _imageFile == null
                       ? "Adjuntar Foto (Opcional)"
                       : _imageFile!.path.split('/').last, // Muestra el nombre
-                  style:
-                      TextStyle(color: Colors.blue[700], fontWeight: FontWeight.w500),
+                  style: TextStyle(
+                    color: Colors.blue[700],
+                    fontWeight: FontWeight.w500,
+                  ),
                   textAlign: TextAlign.center,
                 ),
               ],
             ),
           ),
         ),
-        
+
         // Vista previa de la imagen (HTML #image-preview)
         if (_imageFile != null)
           Padding(
@@ -482,7 +806,9 @@ class _AlertScreenState extends State<AlertScreen>
             focusedBorder: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8.0),
               borderSide: BorderSide(
-                  color: Theme.of(context).colorScheme.primary, width: 2),
+                color: Theme.of(context).colorScheme.primary,
+                width: 2,
+              ),
             ),
             // El 'counter' de 'maxLength' se muestra automáticamente.
             // Para replicar el "0 / 280" exacto, usamos 'counterText'
