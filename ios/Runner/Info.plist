@@ -3,6 +3,10 @@
 <plist version="1.0">
 	<dict>
 
+		<!-- Google Maps API Key (configurada en Secrets.xcconfig) -->
+		<key>GMSApiKey</key>
+		<string>$(GOOGLE_MAPS_API_KEY)</string>
+
 		<!-- Permisos de ubicación -->
 		<key>NSLocationWhenInUseUsageDescription</key>
 		<string>Necesitamos tu ubicación para enviar alertas de emergencia</string>

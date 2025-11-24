@@ -32,3 +32,9 @@ Runner/GeneratedPluginRegistrant.*
 !default.mode2v3
 !default.pbxuser
 !default.perspectivev3
+
+# ⭐ AÑADIR ESTAS LÍNEAS PARA iOS:
+ios/Flutter/Secrets.xcconfig
+ios/Flutter/Generated.xcconfig
+ios/Pods/
+ios/.symlinks/

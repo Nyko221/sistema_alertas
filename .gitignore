@@ -49,3 +49,9 @@ android/local.properties
 .env
 secrets.json
 google-services.json
+
+# iOS - Archivos con claves API
+ios/Flutter/Secrets.xcconfig
+ios/Flutter/Generated.xcconfig
+ios/Pods/
+ios/.symlinks/
